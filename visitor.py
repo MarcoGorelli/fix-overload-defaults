@@ -3,6 +3,9 @@ import ast
 import sys
 from typing import overload, Any
 
+class NoMatch:
+    ...
+
 def extract_annotation_value(annotation: ast.expr) -> Any:
     """Extract the value from a type annotation node."""
     if isinstance(annotation, ast.Constant):
@@ -15,7 +18,7 @@ def extract_annotation_value(annotation: ast.expr) -> Any:
            (isinstance(annotation.value, ast.Attribute) and annotation.value.attr == 'Literal'):
             # Extract the literal value
             return extract_annotation_value(annotation.slice)
-    return None
+    return NoMatch()
 
 def find_overload_default_mismatches(code: str) -> list[Any]:
     """Find overload functions where annotation matches default but missing '= ...'."""
@@ -141,6 +144,7 @@ if __name__ == "__main__":  # pragma: no cover
         if mismatches:
             print(f"Found overload mismatches in {path}:")
             for mismatch in mismatches:
+                print(f"{path}:{mismatch['line']}")
                 print(f"  Function '{mismatch['function']}' at line {mismatch['line']}")
                 print(f"    Arg '{mismatch['arg']}' has annotation {mismatch['annotation_value']}")
                 print(f"    but implementation default is {mismatch['impl_default']}")
