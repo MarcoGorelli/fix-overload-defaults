@@ -142,7 +142,6 @@ if __name__ == "__main__":  # pragma: no cover
         mismatches = find_overload_default_mismatches(content)
 
         if mismatches:
-            print(f"Found overload mismatches in {path}:")
             for mismatch in mismatches:
                 print(f"{path}:{mismatch['line']}")
                 print(f"  Function '{mismatch['function']}' at line {mismatch['line']}")
