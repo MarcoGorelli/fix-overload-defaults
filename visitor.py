@@ -13,7 +13,7 @@ class Function(TypedDict):
     implementation: ast.FunctionDef | None
 
 
-def extract_annotation_value(annotation: ast.expr) -> Any:
+def extract_annotation_value(annotation: ast.expr) -> set[Any]:
     """
     Extract the value from a type annotation node.
 
@@ -22,9 +22,9 @@ def extract_annotation_value(annotation: ast.expr) -> Any:
           then, check if the default is any of them.
     """
     if isinstance(annotation, ast.Constant):
-        return annotation.value
+        return {annotation.value}
     elif isinstance(annotation, ast.Name):
-        return annotation.id
+        return {annotation.id}
     elif isinstance(annotation, ast.Subscript):
         # Handle Literal[value] types
         if (
@@ -34,7 +34,9 @@ def extract_annotation_value(annotation: ast.expr) -> Any:
             and annotation.value.attr == "Literal"
         ):
             return extract_annotation_value(annotation.slice)
-    return NoMatch()
+    elif isinstance(annotation, ast.BinOp):
+        return {*extract_annotation_value(annotation.left), *extract_annotation_value(annotation.right)}
+    return {NoMatch()}
 
 
 def find_overload_default_mismatches(code: str) -> list[Any]:
@@ -98,13 +100,13 @@ def find_overload_default_mismatches(code: str) -> list[Any]:
                 arg_name = arg.arg
                 if arg.annotation is None:
                     continue
-                annotation_value = extract_annotation_value(arg.annotation)
+                annotation_values = extract_annotation_value(arg.annotation)
 
                 # Check if this arg has a default in the implementation
                 if arg_name in impl_defaults:
                     impl_default = impl_defaults[arg_name]
 
-                    if annotation_value == impl_default:
+                    if impl_default in annotation_values:
                         # Check if overload has a default for this arg
                         has_default = i >= len(overload_args) - len(overload_defaults)
 
@@ -113,7 +115,7 @@ def find_overload_default_mismatches(code: str) -> list[Any]:
                                 {
                                     "function": func_name,
                                     "arg": arg_name,
-                                    "annotation_value": annotation_value,
+                                    "annotation_value": annotation_values,
                                     "impl_default": impl_default,
                                     "line": overload_func.lineno,
                                     "overload_func": overload_func,
@@ -125,13 +127,13 @@ def find_overload_default_mismatches(code: str) -> list[Any]:
                 arg_name = arg.arg
                 if arg.annotation is None:
                     continue
-                annotation_value = extract_annotation_value(arg.annotation)
+                annotation_values = extract_annotation_value(arg.annotation)
 
                 if arg_name in impl_defaults:
                     impl_default = impl_defaults[arg_name]
 
                     # Check if annotation matches the default value
-                    if annotation_value == impl_default:
+                    if impl_default in annotation_values:
                         has_default = (
                             overload_kw_defaults
                             and i < len(overload_kw_defaults)
@@ -143,7 +145,7 @@ def find_overload_default_mismatches(code: str) -> list[Any]:
                                 {
                                     "function": func_name,
                                     "arg": arg_name,
-                                    "annotation_value": annotation_value,
+                                    "annotation_value": annotation_values,
                                     "impl_default": impl_default,
                                     "line": overload_func.lineno,
                                     "overload_func": overload_func,
