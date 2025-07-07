@@ -30,11 +30,11 @@ import pytest
         "@overload\n"
         "def foo(*, a: None, b: typing.Optional[int]) -> int: ...\n"
         "def foo(*, a: bool | None = None, b: typing.Optional[int]) -> None | int: ...\n",
-        # "@overload\n"
-        # "def foo(*, a: bool, b: typing.Optional[int]) -> None: ...\n"
-        # "@overload\n"
-        # "def foo(*, a: int | None, b: typing.Optional[int]) -> int: ...\n"
-        # "def foo(*, a: int | bool | None = None, b: typing.Optional[int]) -> None | int: ...\n",
+        "@overload\n"
+        "def foo(*, a: bool, b: typing.Optional[int]) -> None: ...\n"
+        "@overload\n"
+        "def foo(*, a: int | None, b: typing.Optional[int]) -> int: ...\n"
+        "def foo(*, a: int | bool | None = None, b: typing.Optional[int]) -> None | int: ...\n",
     ],
 )
 def test_violations(content: str) -> None:

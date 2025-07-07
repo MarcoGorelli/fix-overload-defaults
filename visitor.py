@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import ast
 import sys
 from typing import overload, Any, TypedDict
@@ -14,19 +15,12 @@ class Function(TypedDict):
 
 
 def extract_annotation_value(annotation: ast.expr) -> set[Any]:
-    """
-    Extract the value from a type annotation node.
-
-    TODO:
-        - instead of extracting a single value, extract a set of values.
-          then, check if the default is any of them.
-    """
     if isinstance(annotation, ast.Constant):
         return {annotation.value}
     elif isinstance(annotation, ast.Name):
         return {annotation.id}
     elif isinstance(annotation, ast.Subscript):
-        # Handle Literal[value] types
+        # e.g. `a: Literal[True]`
         if (
             isinstance(annotation.value, ast.Name) and annotation.value.id == "Literal"
         ) or (
@@ -35,12 +29,19 @@ def extract_annotation_value(annotation: ast.expr) -> set[Any]:
         ):
             return extract_annotation_value(annotation.slice)
     elif isinstance(annotation, ast.BinOp):
+        # e.g. `a: True | None`
         return {*extract_annotation_value(annotation.left), *extract_annotation_value(annotation.right)}
     return {NoMatch()}
 
 
-def find_overload_default_mismatches(code: str) -> list[Any]:
+
+def find_overload_default_mismatches(code: str, stub_code: str | None = None) -> list[Any]:
     """Find overload functions where annotation matches default but missing '= ...'."""
+    if stub_code:
+        stub_tree: ast.Module | None = ast.parse(stub_code)
+    else:
+        stub_tree = None
+
     tree = ast.parse(code)
 
     function_groups: dict[str, Function] = defaultdict(
@@ -53,13 +54,22 @@ def find_overload_default_mismatches(code: str) -> list[Any]:
                 isinstance(decorator, ast.Name) and decorator.id == "overload"
                 for decorator in node.decorator_list
             )
-
             if is_overload:
                 function_groups[node.name]["overloads"].append(node)
             else:
                 function_groups[node.name]["implementation"] = node
 
-    # todo: `implementation` could be fused by `.py` file, if this is a stub one?
+    if stub_tree:
+        for node in ast.walk(stub_tree):
+            if isinstance(node, ast.FunctionDef):
+                is_overload = any(
+                    isinstance(decorator, ast.Name) and decorator.id == "overload"
+                    for decorator in node.decorator_list
+                )
+
+                if is_overload:
+                    function_groups[node.name]["overloads"].append(node)
+
     mismatches: list[dict[str, Any]] = []
 
     for func_name, group in function_groups.items():
@@ -77,9 +87,11 @@ def find_overload_default_mismatches(code: str) -> list[Any]:
         if defaults:
             for i, default in enumerate(defaults):
                 arg_index = len(args) - len(defaults) + i
-                arg_name = args[arg_index].arg
-                if isinstance(default, ast.Constant):
-                    impl_defaults[arg_name] = default.value
+                if 0 <= arg_index < len(args):
+                    arg_name = args[arg_index].arg
+                    if isinstance(default, ast.Constant):
+                        impl_defaults[arg_name] = default.value
+        
         kwonlyargs = impl.args.kwonlyargs
         kw_defaults = impl.args.kw_defaults
         if kw_defaults:
@@ -95,33 +107,34 @@ def find_overload_default_mismatches(code: str) -> list[Any]:
             overload_kwonlyargs = overload_func.args.kwonlyargs
             overload_kw_defaults = overload_func.args.kw_defaults
 
-            # Check positional args in overload
             for i, arg in enumerate(overload_args):
                 arg_name = arg.arg
                 if arg.annotation is None:
                     continue
                 annotation_values = extract_annotation_value(arg.annotation)
 
-                # Check if this arg has a default in the implementation
                 if arg_name in impl_defaults:
                     impl_default = impl_defaults[arg_name]
 
-                    if impl_default in annotation_values:
-                        # Check if overload has a default for this arg
-                        has_default = i >= len(overload_args) - len(overload_defaults)
+                    # We can only report a mismatch if this is the last argument which doesn't have a default,
+                    # as python doesn't allow for non-default args to follow default ones.
+                    # e.g.:
+                    #     @overload
+                    #     def foo(a: int, b: str)
+                    # here we can add a default for `b`, but not for `a`.
+                    is_last_positional_arg_without_default = i == len(overload_args) - len(overload_defaults) -1
 
-                        if not has_default:
-                            mismatches.append(
-                                {
-                                    "function": func_name,
-                                    "arg": arg_name,
-                                    "annotation_value": annotation_values,
-                                    "impl_default": impl_default,
-                                    "line": overload_func.lineno,
-                                    "overload_func": overload_func,
-                                }
-                            )
-
+                    if impl_default in annotation_values and is_last_positional_arg_without_default:
+                        mismatches.append(
+                            {
+                                "function": func_name,
+                                "arg": arg_name,
+                                "annotation_value": annotation_values,
+                                "impl_default": impl_default,
+                                "line": overload_func.lineno,
+                                "overload_func": overload_func,
+                            }
+                        )
             # Check keyword-only args in overload
             for i, arg in enumerate(overload_kwonlyargs):
                 arg_name = arg.arg
@@ -159,14 +172,16 @@ if __name__ == "__main__":  # pragma: no cover
     for path in sys.argv[1:]:
         with open(path) as fd:
             content = fd.read()
-        mismatches = find_overload_default_mismatches(content)
+        stub_file = path.removesuffix('.py') + '.pyi'
+        if os.path.exists(stub_file):
+            with open(stub_file) as fd:
+                stub_content = fd.read()
+            path = stub_file
+        else:
+            stub_content = None
+
+        mismatches = find_overload_default_mismatches(content, stub_content)
 
         if mismatches:
             for mismatch in mismatches:
-                print(f"{path}:{mismatch['line']}")
-                print(f"  Function '{mismatch['function']}' at line {mismatch['line']}")
-                print(
-                    f"    Arg '{mismatch['arg']}' has annotation {mismatch['annotation_value']}"
-                )
-                print(f"    but implementation default is {mismatch['impl_default']}")
-                print()
+                print(f"{path}:{mismatch['line']}: Arg '{mismatch['arg']}' is missing a default value in the annotation. Hint: add `= ...`")
