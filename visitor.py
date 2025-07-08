@@ -41,12 +41,12 @@ def find_literal_alias(module: ast.Module) -> str | None:
                     return name.asname or 'Literal'
     return None
 
-def report_missing_default(func_name: str, arg: ast.arg, literal_alias: str | None, has_default: bool, impl_default: Any) -> dict[str, Any] | None:
+def report_missing_default(func_name: str, arg: ast.arg, literal_alias: str | None, impl_default: Any) -> dict[str, Any] | None:
     assert arg.annotation is not None
     arg_name = arg.arg
     annotation_values = extract_annotation_value(arg.annotation, literal_alias)
 
-    if impl_default in annotation_values and not has_default:
+    if impl_default in annotation_values:
         return {
                 "function": func_name,
                 "arg": arg_name,
@@ -171,9 +171,10 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                     continue
 
                 is_last_positional_without_default =  i == len(overload_args) - len(overload_defaults) -1
-                if missing_default := report_missing_default(func_name, arg, literal_alias, not is_last_positional_without_default, impl_defaults[arg_name]):
-                    mismatches.append(missing_default)
-                if not is_last_positional_without_default:
+                if is_last_positional_without_default:
+                    if missing_default := report_missing_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
+                        mismatches.append(missing_default)
+                else:
                     if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
                         mismatches.append(wrong_default)
 
@@ -185,10 +186,11 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                 if arg_name not in impl_defaults:
                     continue
 
-                missing_default = i < len(overload_kw_defaults) and overload_kw_defaults[i] is not None
-                if missing_default := report_missing_default(func_name, arg, literal_alias, missing_default, impl_defaults[arg_name]):
-                    mismatches.append(missing_default)
-                if not missing_default:
+                is_missing_default = i < len(overload_kw_defaults) and overload_kw_defaults[i] is None
+                if is_missing_default:
+                    if missing_default := report_missing_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
+                        mismatches.append(missing_default)
+                else:
                     if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
                         mismatches.append(wrong_default)
 
