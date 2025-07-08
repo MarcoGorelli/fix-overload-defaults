@@ -41,6 +41,44 @@ def find_literal_alias(module: ast.Module) -> str | None:
                     return name.asname or 'Literal'
     return None
 
+def report_missing_default(func_name: str, arg: ast.arg, literal_alias: str | None, has_default: bool, impl_default: Any) -> dict[str, Any] | None:
+    assert arg.annotation is not None
+    arg_name = arg.arg
+    annotation_values = extract_annotation_value(arg.annotation, literal_alias)
+
+    if impl_default in annotation_values and not has_default:
+        return {
+                "function": func_name,
+                "arg": arg_name,
+                "impl_default": impl_default,
+                "line": arg.lineno,
+            }
+    return None
+
+def report_wrong_default(func_name: str, arg: ast.arg, literal_alias: str | None, impl_default: Any) -> dict[str, Any] | None:
+    assert arg.annotation is not None
+    arg_name = arg.arg
+    annotation_values = extract_annotation_value(arg.annotation, literal_alias)
+
+    # Some hand-written simple cases of incorrect defaults which we can detect.
+    if impl_default is False and len(annotation_values) == 1 and list(annotation_values)[0] in {True, None}:
+        return { "function": func_name, "arg": arg_name, "impl_default": impl_default, "line": arg.lineno, }
+    elif impl_default is True and len(annotation_values) == 1 and list(annotation_values)[0] in {False, None}:
+        return {
+                "function": func_name,
+                "arg": arg_name,
+                "impl_default": impl_default,
+                "line": arg.lineno,
+            }
+    elif impl_default is None and len(annotation_values) == 1 and list(annotation_values)[0] in {False, True}:
+        return {
+                "function": func_name,
+                "arg": arg_name,
+                "impl_default": impl_default,
+                "line": arg.lineno,
+            }
+    return None
+
 
 def find_overload_default_mismatches(code: str, stub_code: str | None = None) -> list[Any]:
     """Find overload functions where annotation matches default but missing '= ...'."""
@@ -126,89 +164,31 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
             overload_kw_defaults = overload_func.args.kw_defaults
 
             for i, arg in enumerate(overload_args):
-                arg_name = arg.arg
                 if arg.annotation is None:
                     continue
-                annotation_values = extract_annotation_value(arg.annotation, literal_alias)
-                is_last_positional_arg_without_default = i == len(overload_args) - len(overload_defaults) -1
-                has_default = i >= len(overload_args) - len(overload_defaults)
+                arg_name = arg.arg
+                if arg_name not in impl_defaults:
+                    continue
 
-                if arg_name in impl_defaults:
-                    impl_default = impl_defaults[arg_name]
-
-                    # We can only report a mismatch if this is the last argument which doesn't have a default,
-                    # as python doesn't allow for non-default args to follow default ones.
-                    # e.g.:
-                    #     @overload
-                    #     def foo(a: int, b: str)
-                    # here we can add a default for `b`, but not for `a`.
-
-                    if impl_default in annotation_values and is_last_positional_arg_without_default:
-                        mismatches.append(
-                            {
-                                "function": func_name,
-                                "arg": arg_name,
-                                "impl_default": impl_default,
-                                "line": overload_func.lineno,
-                            }
-                        )
-                    elif has_default:
-                        # Some hand-written simple cases of incorrect defaults which we can detect.
-                        if impl_default is False and len(annotation_values) == 1 and list(annotation_values)[0] in {True, None}:
-                            mismatches.append(
-                                {
-                                    "function": func_name,
-                                    "arg": arg_name,
-                                    "impl_default": impl_default,
-                                    "line": overload_func.lineno,
-                                }
-                            )
-                        elif impl_default is True and len(annotation_values) == 1 and list(annotation_values)[0] in {False, None}:
-                            mismatches.append(
-                                {
-                                    "function": func_name,
-                                    "arg": arg_name,
-                                    "impl_default": impl_default,
-                                    "line": overload_func.lineno,
-                                }
-                            )
-                        elif impl_default is None and len(annotation_values) == 1 and list(annotation_values)[0] in {False, True}:
-                            mismatches.append(
-                                {
-                                    "function": func_name,
-                                    "arg": arg_name,
-                                    "impl_default": impl_default,
-                                    "line": overload_func.lineno,
-                                }
-                            )
+                is_last_positional_without_default =  i == len(overload_args) - len(overload_defaults) -1
+                if missing_default := report_missing_default(func_name, arg, literal_alias, not is_last_positional_without_default, impl_defaults[arg_name]):
+                    mismatches.append(missing_default)
+                if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
+                    mismatches.append(wrong_default)
 
             # Check keyword-only args in overload
             for i, arg in enumerate(overload_kwonlyargs):
                 arg_name = arg.arg
                 if arg.annotation is None:
                     continue
-                annotation_values = extract_annotation_value(arg.annotation, literal_alias)
+                if arg_name not in impl_defaults:
+                    continue
 
-                if arg_name in impl_defaults:
-                    impl_default = impl_defaults[arg_name]
-
-                    # Check if annotation matches the default value
-                    if impl_default in annotation_values:
-                        has_default = (
-                            overload_kw_defaults
-                            and i < len(overload_kw_defaults)
-                            and overload_kw_defaults[i] is not None
-                        )
-
-                        if not has_default:
-                            mismatches.append(
-                                {
-                                    "function": func_name,
-                                    "arg": arg_name,
-                                    "impl_default": impl_default,
-                                    "line": overload_func.lineno,
-                                }
-                            )
+                missing_default = i < len(overload_kw_defaults) and overload_kw_defaults[i] is not None
+                if missing_default := report_missing_default(func_name, arg, literal_alias, missing_default, impl_defaults[arg_name]):
+                    mismatches.append(missing_default)
+                if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
+                    mismatches.append(wrong_default)
 
     return mismatches
 

@@ -49,6 +49,18 @@ import pytest
         "@overload\n"
         "def foo(a: Literal[False] = ...) -> int: ...\n"
         "def foo(a: bool = False) -> None | int: ...\n",
+        "from typing import Literal\n"
+        "@overload\n"
+        "def foo(a: Literal[True] = ...) -> None: ...\n"
+        "@overload\n"
+        "def foo(a: Literal[False] = ...) -> int: ...\n"
+        "def foo(a: bool = True) -> None | int: ...\n",
+        "from typing import Literal\n"
+        "@overload\n"
+        "def foo(a: Literal[True] = ...) -> None: ...\n"
+        "@overload\n"
+        "def foo(a: Literal[False] = ...) -> int: ...\n"
+        "def foo(a: bool | None = None) -> None | int: ...\n",
     ],
 )
 def test_violations(content: str) -> None:
