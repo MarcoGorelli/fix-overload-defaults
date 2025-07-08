@@ -173,8 +173,9 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                 is_last_positional_without_default =  i == len(overload_args) - len(overload_defaults) -1
                 if missing_default := report_missing_default(func_name, arg, literal_alias, not is_last_positional_without_default, impl_defaults[arg_name]):
                     mismatches.append(missing_default)
-                if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
-                    mismatches.append(wrong_default)
+                if not is_last_positional_without_default:
+                    if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
+                        mismatches.append(wrong_default)
 
             # Check keyword-only args in overload
             for i, arg in enumerate(overload_kwonlyargs):
@@ -187,8 +188,9 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                 missing_default = i < len(overload_kw_defaults) and overload_kw_defaults[i] is not None
                 if missing_default := report_missing_default(func_name, arg, literal_alias, missing_default, impl_defaults[arg_name]):
                     mismatches.append(missing_default)
-                if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
-                    mismatches.append(wrong_default)
+                if not missing_default:
+                    if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
+                        mismatches.append(wrong_default)
 
     return mismatches
 
