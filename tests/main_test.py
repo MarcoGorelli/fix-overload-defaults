@@ -69,6 +69,12 @@ import pytest
         "def foo(a: bool = True) -> None | int: ...\n",
         "from typing import Literal\n"
         "@overload\n"
+        "def foo(*, a: Literal[True] = ...) -> None: ...\n"
+        "@overload\n"
+        "def foo(*, a: Literal[False] = ...) -> int: ...\n"
+        "def foo(*, a: bool = True) -> None | int: ...\n",
+        "from typing import Literal\n"
+        "@overload\n"
         "def foo(a: Literal[True] = ...) -> None: ...\n"
         "@overload\n"
         "def foo(a: Literal[False] = ...) -> int: ...\n"
