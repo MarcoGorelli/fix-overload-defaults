@@ -55,6 +55,8 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
         lambda: {"overloads": [], "implementation": None}
     )
 
+    ambiguous: set[str] = set()
+
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
             is_overload = any(
@@ -64,7 +66,14 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
             if is_overload:
                 function_groups[node.name]["overloads"].append(node)
             else:
+                if function_groups[node.name]['implementation'] is not None:
+                    ambiguous.add(node.name)
                 function_groups[node.name]["implementation"] = node
+        
+    # If a function is defined multiple times in the same file, don't guess, just
+    # ignore it. Keep it safe.
+    for name in ambiguous:
+        function_groups.pop(name)
 
     if stub_tree:
         for node in ast.walk(stub_tree):
@@ -143,16 +152,35 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                                 "line": overload_func.lineno,
                             }
                         )
-                elif has_default and i < len(impl.args.args) - len(impl.args.defaults):
-                    mismatches.append(
-                        {
-                            "function": func_name,
-                            "arg": arg_name,
-                            "impl_default": '<none>',
-                            "line": overload_func.lineno,
-                        }
-                    )
-
+                    elif has_default:
+                        # Some hand-written simple cases of incorrect defaults which we can detect.
+                        if impl_default is False and len(annotation_values) == 1 and list(annotation_values)[0] in {True, None}:
+                            mismatches.append(
+                                {
+                                    "function": func_name,
+                                    "arg": arg_name,
+                                    "impl_default": impl_default,
+                                    "line": overload_func.lineno,
+                                }
+                            )
+                        elif impl_default is True and len(annotation_values) == 1 and list(annotation_values)[0] in {False, None}:
+                            mismatches.append(
+                                {
+                                    "function": func_name,
+                                    "arg": arg_name,
+                                    "impl_default": impl_default,
+                                    "line": overload_func.lineno,
+                                }
+                            )
+                        elif impl_default is None and len(annotation_values) == 1 and list(annotation_values)[0] in {False, True}:
+                            mismatches.append(
+                                {
+                                    "function": func_name,
+                                    "arg": arg_name,
+                                    "impl_default": impl_default,
+                                    "line": overload_func.lineno,
+                                }
+                            )
 
             # Check keyword-only args in overload
             for i, arg in enumerate(overload_kwonlyargs):
