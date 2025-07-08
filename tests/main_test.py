@@ -85,6 +85,21 @@ def test_violations(content: str) -> None:
     result = find_overload_default_mismatches(content)
     assert result
 
+@pytest.mark.parametrize(
+    ("content", "stub_content"),
+    [
+        ("def foo(a: bool = False) -> None | int: ...\n",
+        "from typing import Literal\n"
+        "@overload\n"
+        "def foo(a: Literal[True]) -> None: ...\n"
+        "@overload\n"
+        "def foo(a: Literal[False]) -> int: ...\n")
+    ],
+)
+def test_violations_with_stubs(content: str, stub_content: str) -> None:
+    result = find_overload_default_mismatches(content, stub_content)
+    assert result
+
 
 @pytest.mark.parametrize(
     "content",
@@ -119,6 +134,11 @@ def test_violations(content: str) -> None:
         "@overload\n"
         "def foo(*, a) -> int: ...\n"
         "def foo(*, a: bool = False) -> None | int: ...\n",
+        "@overload\n"
+        "def foo(a: Literal[True]) -> None: ...\n"
+        "@overload\n"
+        "def foo(a: Literal[False]) -> int: ...\n"
+        "def foo(a: bool) -> None | int: ...\n",
     ],
 )
 def test_passing(content: str) -> None:
