@@ -80,7 +80,7 @@ def report_wrong_default(func_name: str, arg: ast.arg, literal_alias: str | None
     return None
 
 
-def find_overload_default_mismatches(code: str, stub_code: str | None = None) -> list[Any]:
+def find_overload_default_mismatches(code: str, stub_code: str | None = None) -> tuple[list[Any], list[Any]]:
     """Find overload functions where annotation matches default but missing '= ...'."""
     if stub_code:
         stub_tree: ast.Module | None = ast.parse(stub_code)
@@ -126,7 +126,8 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
     else:
         literal_alias = find_literal_alias(tree)
 
-    mismatches: list[dict[str, Any]] = []
+    missing_defaults: list[dict[str, Any]] = []
+    wrong_defaults: list[dict[str, Any]] = []
 
     for func_name, group in function_groups.items():
         if not group["overloads"] or not group["implementation"]:
@@ -170,13 +171,14 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                 if arg_name not in impl_defaults:
                     continue
 
+                is_missing_default =  i < len(overload_args) - len(overload_defaults)
                 is_last_positional_without_default =  i == len(overload_args) - len(overload_defaults) -1
                 if is_last_positional_without_default:
                     if missing_default := report_missing_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
-                        mismatches.append(missing_default)
-                else:
+                        missing_defaults.append(missing_default)
+                elif not is_missing_default:
                     if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
-                        mismatches.append(wrong_default)
+                        wrong_defaults.append(wrong_default)
 
             # Check keyword-only args in overload
             for i, arg in enumerate(overload_kwonlyargs):
@@ -189,12 +191,12 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                 is_missing_default = i < len(overload_kw_defaults) and overload_kw_defaults[i] is None
                 if is_missing_default:
                     if missing_default := report_missing_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
-                        mismatches.append(missing_default)
+                        missing_defaults.append(missing_default)
                 else:
                     if wrong_default := report_wrong_default(func_name, arg, literal_alias, impl_defaults[arg_name]):
-                        mismatches.append(wrong_default)
+                        wrong_defaults.append(wrong_default)
 
-    return mismatches
+    return missing_defaults, wrong_defaults
 
 
 if __name__ == "__main__":  # pragma: no cover
@@ -209,8 +211,11 @@ if __name__ == "__main__":  # pragma: no cover
         else:
             stub_content = None
 
-        mismatches = find_overload_default_mismatches(content, stub_content)
+        missing_defaults, wrong_defaults = find_overload_default_mismatches(content, stub_content)
 
-        if mismatches:
-            for mismatch in mismatches:
+        if missing_defaults:
+            for mismatch in missing_defaults:
                 print(f"{path}:{mismatch['line']} {mismatch['function']}: Arg '{mismatch['arg']}' is missing a default value in the annotation. Hint: add `= ...`")
+        if wrong_defaults:
+            for mismatch in wrong_defaults:
+                print(f"{path}:{mismatch['line']} {mismatch['function']}: Arg '{mismatch['arg']}' incorrect default values.")

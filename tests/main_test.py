@@ -98,7 +98,7 @@ def test_violations(content: str) -> None:
 )
 def test_violations_with_stubs(content: str, stub_content: str) -> None:
     result = find_overload_default_mismatches(content, stub_content)
-    assert result
+    assert result != ([], [])
 
 
 @pytest.mark.parametrize(
@@ -143,4 +143,4 @@ def test_violations_with_stubs(content: str, stub_content: str) -> None:
 )
 def test_passing(content: str) -> None:
     result = find_overload_default_mismatches(content)
-    assert not result
+    assert result == ([], [])
