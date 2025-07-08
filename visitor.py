@@ -1,12 +1,12 @@
+# The other part of it is...we could find where there's defaults but there shouldn't be?
+# That's...a bit harder.
 from __future__ import annotations
 import os
 import ast
 import sys
-from typing import overload, Any, TypedDict
+from typing import Any, TypedDict
 from collections import defaultdict
 
-
-class NoMatch: ...
 
 
 class Function(TypedDict):
@@ -14,7 +14,7 @@ class Function(TypedDict):
     implementation: ast.FunctionDef | None
 
 
-def extract_annotation_value(annotation: ast.expr) -> set[Any]:
+def extract_annotation_value(annotation: ast.expr, literal_alias: str | None) -> set[Any]:
     if isinstance(annotation, ast.Constant):
         return {annotation.value}
     elif isinstance(annotation, ast.Name):
@@ -22,17 +22,24 @@ def extract_annotation_value(annotation: ast.expr) -> set[Any]:
     elif isinstance(annotation, ast.Subscript):
         # e.g. `a: Literal[True]`
         if (
-            isinstance(annotation.value, ast.Name) and annotation.value.id == "Literal"
+            isinstance(annotation.value, ast.Name) and annotation.value.id == literal_alias
         ) or (
             isinstance(annotation.value, ast.Attribute)
-            and annotation.value.attr == "Literal"
+            and annotation.value.attr == literal_alias
         ):
-            return extract_annotation_value(annotation.slice)
+            return extract_annotation_value(annotation.slice, literal_alias)
     elif isinstance(annotation, ast.BinOp):
         # e.g. `a: True | None`
-        return {*extract_annotation_value(annotation.left), *extract_annotation_value(annotation.right)}
-    return {NoMatch()}
+        return {*extract_annotation_value(annotation.left, literal_alias), *extract_annotation_value(annotation.right, literal_alias)}
+    return set()
 
+def find_literal_alias(module: ast.Module) -> str | None:
+    for node in ast.walk(module):
+        if isinstance(node, ast.ImportFrom) and node.module == 'typing':
+            for name in node.names:
+                if name.name == 'Literal':
+                    return name.asname or 'Literal'
+    return None
 
 
 def find_overload_default_mismatches(code: str, stub_code: str | None = None) -> list[Any]:
@@ -66,9 +73,11 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                     isinstance(decorator, ast.Name) and decorator.id == "overload"
                     for decorator in node.decorator_list
                 )
-
                 if is_overload:
                     function_groups[node.name]["overloads"].append(node)
+        literal_alias = find_literal_alias(stub_tree)
+    else:
+        literal_alias = find_literal_alias(tree)
 
     mismatches: list[dict[str, Any]] = []
 
@@ -111,7 +120,9 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                 arg_name = arg.arg
                 if arg.annotation is None:
                     continue
-                annotation_values = extract_annotation_value(arg.annotation)
+                annotation_values = extract_annotation_value(arg.annotation, literal_alias)
+                is_last_positional_arg_without_default = i == len(overload_args) - len(overload_defaults) -1
+                has_default = i >= len(overload_args) - len(overload_defaults)
 
                 if arg_name in impl_defaults:
                     impl_default = impl_defaults[arg_name]
@@ -122,25 +133,33 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                     #     @overload
                     #     def foo(a: int, b: str)
                     # here we can add a default for `b`, but not for `a`.
-                    is_last_positional_arg_without_default = i == len(overload_args) - len(overload_defaults) -1
 
                     if impl_default in annotation_values and is_last_positional_arg_without_default:
                         mismatches.append(
                             {
                                 "function": func_name,
                                 "arg": arg_name,
-                                "annotation_value": annotation_values,
                                 "impl_default": impl_default,
                                 "line": overload_func.lineno,
-                                "overload_func": overload_func,
                             }
                         )
+                elif has_default and i < len(impl.args.args) - len(impl.args.defaults):
+                    mismatches.append(
+                        {
+                            "function": func_name,
+                            "arg": arg_name,
+                            "impl_default": '<none>',
+                            "line": overload_func.lineno,
+                        }
+                    )
+
+
             # Check keyword-only args in overload
             for i, arg in enumerate(overload_kwonlyargs):
                 arg_name = arg.arg
                 if arg.annotation is None:
                     continue
-                annotation_values = extract_annotation_value(arg.annotation)
+                annotation_values = extract_annotation_value(arg.annotation, literal_alias)
 
                 if arg_name in impl_defaults:
                     impl_default = impl_defaults[arg_name]
@@ -158,10 +177,8 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
                                 {
                                     "function": func_name,
                                     "arg": arg_name,
-                                    "annotation_value": annotation_values,
                                     "impl_default": impl_default,
                                     "line": overload_func.lineno,
-                                    "overload_func": overload_func,
                                 }
                             )
 
@@ -184,4 +201,4 @@ if __name__ == "__main__":  # pragma: no cover
 
         if mismatches:
             for mismatch in mismatches:
-                print(f"{path}:{mismatch['line']}: Arg '{mismatch['arg']}' is missing a default value in the annotation. Hint: add `= ...`")
+                print(f"{path}:{mismatch['line']} {mismatch['function']}: Arg '{mismatch['arg']}' is missing a default value in the annotation. Hint: add `= ...`")

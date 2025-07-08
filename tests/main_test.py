@@ -5,11 +5,19 @@ import pytest
 @pytest.mark.parametrize(
     "content",
     [
+        "from typing import Literal\n"
         "@overload\n"
         "def foo(a: Literal[True]) -> None: ...\n"
         "@overload\n"
         "def foo(a: Literal[False]) -> int: ...\n"
         "def foo(a: bool = False) -> None | int: ...\n",
+        "from typing import Literal as L\n"
+        "@overload\n"
+        "def foo(a: L[True]) -> None: ...\n"
+        "@overload\n"
+        "def foo(a: L[False]) -> int: ...\n"
+        "def foo(a: bool = False) -> None | int: ...\n",
+        "from typing import Literal\n"
         "@overload\n"
         "def foo(a: Literal[True] = ...) -> None: ...\n"
         "@overload\n"
