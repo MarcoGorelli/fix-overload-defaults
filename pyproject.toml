@@ -1,0 +1,23 @@
+# Reference: https://packaging.python.org/en/latest/guides/writing-pyproject-toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fix_overload_defaults"
+version = "0.1.0"
+dependencies = []
+requires-python = ">=3.9"
+authors = [
+  { name = "Marco Gorelli", email = "33491632+MarcoGorelli@users.noreply.github.com" },
+]
+description = "fix overload defaults"
+readme = "README.md"
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Operating System :: OS Independent",
+]
+
+[project.scripts]
+fix-overload-defaults = "fix_overload_defaults:main"

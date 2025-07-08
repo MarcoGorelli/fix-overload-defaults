@@ -1,6 +1,5 @@
-# The other part of it is...we could find where there's defaults but there shouldn't be?
-# That's...a bit harder.
 from __future__ import annotations
+import sys
 import os
 import ast
 import sys
@@ -198,8 +197,7 @@ def find_overload_default_mismatches(code: str, stub_code: str | None = None) ->
 
     return missing_defaults, wrong_defaults
 
-
-if __name__ == "__main__":  # pragma: no cover
+def main():
     for path in sys.argv[1:]:
         with open(path) as fd:
             content = fd.read()
@@ -218,4 +216,7 @@ if __name__ == "__main__":  # pragma: no cover
                 print(f"{path}:{mismatch['line']} {mismatch['function']}: Arg '{mismatch['arg']}' is missing a default value in the annotation. Hint: add `= ...`")
         if wrong_defaults:
             for mismatch in wrong_defaults:
-                print(f"{path}:{mismatch['line']} {mismatch['function']}: Arg '{mismatch['arg']}' incorrect default values.")
+                print(f"{path}:{mismatch['line']} {mismatch['function']}: Arg '{mismatch['arg']}' incorrect default value.")
+
+if __name__ == '__main__':
+    sys.exit(main()) 
